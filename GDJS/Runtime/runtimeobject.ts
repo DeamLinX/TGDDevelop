@@ -4,7 +4,10 @@
  * This project is released under the MIT License.
  */
 namespace gdjs {
-  /** An axis-aligned bounding box. Used to represents a box around an object for example. */
+  /**
+   * An axis-aligned bounding box. Used to represents a box around an object for example.
+   * @category Core Engine > Object
+   */
   export type AABB = {
     /** The [x,y] coordinates of the top left point */
     min: FloatPoint;
@@ -12,6 +15,9 @@ namespace gdjs {
     max: FloatPoint;
   };
 
+  /**
+   * @category Core Engine > Object
+   */
   export type RendererObjectInterface = {
     visible: boolean;
   };
@@ -152,6 +158,7 @@ namespace gdjs {
    *
    * A `gdjs.RuntimeObject` should not be instantiated directly, always a child class
    * (because gdjs.RuntimeObject don't call onCreated at the end of its constructor).
+   * @category Core Engine > Object
    */
   export class RuntimeObject implements EffectsTarget, gdjs.EffectHandler {
     name: string;
@@ -233,7 +240,8 @@ namespace gdjs {
      */
     constructor(
       instanceContainer: gdjs.RuntimeInstanceContainer,
-      objectData: ObjectData & any
+      objectData: ObjectData,
+      instanceData: InstanceData | undefined
     ) {
       this.name = objectData.name || '';
       this.type = objectData.type || '';
@@ -248,22 +256,34 @@ namespace gdjs {
       this._totalForce = new gdjs.Force(0, 0, 0);
       this._behaviorsTable = new Hashtable();
       for (let i = 0; i < objectData.effects.length; ++i) {
+        const effectData = objectData.effects[i];
         this._runtimeScene
           .getGame()
           .getEffectsManager()
-          .initializeEffect(objectData.effects[i], this._rendererEffects, this);
-        this.updateAllEffectParameters(objectData.effects[i]);
+          .initializeEffect(effectData, this._rendererEffects, this);
+        this.updateAllEffectParameters(effectData);
+        if (effectData.disabled) {
+          this.enableEffect(effectData.name, false);
+        }
       }
       //Also contains the behaviors: Used when a behavior is accessed by its name ( see getBehavior ).
       for (let i = 0, len = objectData.behaviors.length; i < len; ++i) {
         const autoData = objectData.behaviors[i];
         const Ctor = gdjs.getBehaviorConstructor(autoData.type);
         const behavior = new Ctor(instanceContainer, autoData, this);
-        console.log(behavior);
         if (behavior.usesLifecycleFunction()) {
           this._behaviors.push(behavior);
         }
         this._behaviorsTable.put(autoData.name, behavior);
+      }
+      if (instanceData && instanceData.behaviorOverridings) {
+        for (const behaviorOverriding of instanceData.behaviorOverridings) {
+          const behavior = this.getBehavior(behaviorOverriding.name);
+          if (!behavior) {
+            continue;
+          }
+          behavior.applyBehaviorOverriding(behaviorOverriding);
+        }
       }
       this._timers = new Hashtable();
     }
@@ -293,7 +313,7 @@ namespace gdjs {
 
     /**
      * Called to reset the object to its default state. This is used for objects that are
-     * "recycled": they are dismissed (at which point `onDestroyFromScene` is called) but still
+     * "recycled": they are dismissed (at which point `onDeletedFromScene` is called) but still
      * stored in a cache to be reused next time an object must be created. At this point,
      * `reinitialize` will be called. The object must then work as if it was a newly constructed
      * object.
@@ -361,11 +381,15 @@ namespace gdjs {
 
       // Reinitialize effects.
       for (let i = 0; i < objectData.effects.length; ++i) {
+        const effectData = objectData.effects[i];
         this._runtimeScene
           .getGame()
           .getEffectsManager()
-          .initializeEffect(objectData.effects[i], this._rendererEffects, this);
-        this.updateAllEffectParameters(objectData.effects[i]);
+          .initializeEffect(effectData, this._rendererEffects, this);
+        this.updateAllEffectParameters(effectData);
+        if (effectData.disabled) {
+          this.enableEffect(effectData.name, false);
+        }
       }
 
       // Make sure to delete existing timers.
@@ -383,10 +407,8 @@ namespace gdjs {
      * in milliseconds, for the object.
      *
      * Objects can have different elapsed time if they are on layers with different time scales.
-     *
-     * @param instanceContainer The instance container the object belongs to (deprecated - can be omitted).
      */
-    getElapsedTime(instanceContainer?: gdjs.RuntimeInstanceContainer): float {
+    getElapsedTime(): float {
       const theLayer = this._runtimeScene.getLayer(this.layer);
       return theLayer.getElapsedTime();
     }
@@ -425,7 +447,8 @@ namespace gdjs {
     updatePreRender(instanceContainer: gdjs.RuntimeInstanceContainer): void {}
 
     /**
-     * Called when the object is created from an initial instance at the startup of the scene.<br>
+     * Called when the object is created from an initial instance at the startup of the scene.
+     *
      * Note that common properties (position, angle, z order...) have already been setup.
      *
      * @param initialInstanceData The data of the initial instance.
@@ -455,17 +478,17 @@ namespace gdjs {
      * This can be redefined by objects to send more information.
      * @returns The full network sync data.
      */
-    getNetworkSyncData(): ObjectNetworkSyncData {
+    getNetworkSyncData(
+      syncOptions: GetNetworkSyncDataOptions
+    ): ObjectNetworkSyncData {
       const behaviorNetworkSyncData = {};
       this._behaviors.forEach((behavior) => {
-        if (!behavior.isSyncedOverNetwork()) {
+        if (!behavior.isSyncedOverNetwork() && !syncOptions.syncAllBehaviors) {
           return;
         }
 
-        const networkSyncData = behavior.getNetworkSyncData();
-        if (networkSyncData) {
-          behaviorNetworkSyncData[behavior.getName()] = networkSyncData;
-        }
+        const networkSyncData = behavior.getNetworkSyncData(syncOptions);
+        behaviorNetworkSyncData[behavior.getName()] = networkSyncData;
       });
 
       const variablesNetworkSyncData = this._variables.getNetworkSyncData({
@@ -484,9 +507,11 @@ namespace gdjs {
           this._timers.items[timerName].getNetworkSyncData();
       }
 
-      return {
+      const networkSyncData: ObjectNetworkSyncData = {
         x: this.x,
         y: this.y,
+        w: this.getWidth(),
+        h: this.getHeight(),
         zo: this.zOrder,
         a: this.angle,
         hid: this.hidden,
@@ -499,6 +524,19 @@ namespace gdjs {
         eff: effectsNetworkSyncData,
         tim: timersNetworkSyncData,
       };
+
+      if (syncOptions.syncObjectIdentifiers) {
+        networkSyncData.n = this.name;
+        if (!this.networkId) {
+          // If this is the first time the object is synced
+          // with identifier, then generate a networkId,
+          // so it can be re-used for future syncs.
+          this.networkId = gdjs.makeUuid().substring(0, 8);
+        }
+        networkSyncData.networkId = this.networkId;
+      }
+
+      return networkSyncData;
     }
 
     /**
@@ -508,12 +546,21 @@ namespace gdjs {
      * @param networkSyncData The new data for the object.
      * @returns true if the object was updated, false if it could not (i.e: network sync is not supported).
      */
-    updateFromNetworkSyncData(networkSyncData: ObjectNetworkSyncData) {
+    updateFromNetworkSyncData(
+      networkSyncData: ObjectNetworkSyncData,
+      options: UpdateFromNetworkSyncDataOptions
+    ) {
       if (networkSyncData.x !== undefined) {
         this.setX(networkSyncData.x);
       }
       if (networkSyncData.y !== undefined) {
         this.setY(networkSyncData.y);
+      }
+      if (networkSyncData.w !== undefined) {
+        this.setWidth(networkSyncData.w);
+      }
+      if (networkSyncData.h !== undefined) {
+        this.setHeight(networkSyncData.h);
       }
       if (networkSyncData.zo !== undefined) {
         this.setZOrder(networkSyncData.zo);
@@ -557,18 +604,19 @@ namespace gdjs {
         this._permanentForceY = networkSyncData.pfy;
       }
 
+      // If variables are synchronized, update them first,
+      // as behaviors may depend on them. (Like tweens)
+      if (networkSyncData.var) {
+        this._variables.updateFromNetworkSyncData(networkSyncData.var, options);
+      }
+
       // Loop through all behaviors and update them.
       for (const behaviorName in networkSyncData.beh) {
         const behaviorNetworkSyncData = networkSyncData.beh[behaviorName];
         const behavior = this.getBehavior(behaviorName);
         if (behavior) {
-          behavior.updateFromNetworkSyncData(behaviorNetworkSyncData);
+          behavior.updateFromNetworkSyncData(behaviorNetworkSyncData, options);
         }
-      }
-
-      // If variables are synchronized, update them.
-      if (networkSyncData.var) {
-        this._variables.updateFromNetworkSyncData(networkSyncData.var);
       }
 
       // If effects are synchronized, update them.
@@ -584,27 +632,29 @@ namespace gdjs {
       }
 
       // If timers are synchronized, update them.
-      // TODO: If a timer is removed, also remove it from the object?
       if (networkSyncData.tim) {
+        this._timers.clear();
         for (const timerName in networkSyncData.tim) {
-          const timerNetworkSyncData = networkSyncData.tim[timerName];
-          const timer = this._timers.get(timerName);
-          if (timer) {
-            timer.updateFromNetworkSyncData(timerNetworkSyncData);
-          }
+          const timerData = networkSyncData.tim[timerName];
+          const newTimer = new gdjs.Timer(timerData.name);
+          newTimer.updateFromNetworkSyncData(timerData);
+          this._timers.put(timerName, newTimer);
         }
+      }
+
+      if (networkSyncData.networkId !== undefined) {
+        this.networkId = networkSyncData.networkId;
       }
     }
 
     /**
      * Remove an object from a scene.
      *
-     * Do not change/redefine this method. Instead, redefine the onDestroyFromScene method.
-     * @param instanceContainer The container owning the object.
+     * Do not change/redefine this method. Instead, redefine the onDeletedFromScene method.
      */
-    deleteFromScene(instanceContainer: gdjs.RuntimeInstanceContainer): void {
+    deleteFromScene(): void {
       if (this._livingOnScene) {
-        instanceContainer.markObjectForDeletion(this);
+        this._runtimeScene.markObjectForDeletion(this);
         this._livingOnScene = false;
       }
     }
@@ -618,14 +668,15 @@ namespace gdjs {
     }
 
     /**
-     * Called when the object is destroyed (because it is removed from a scene or the scene
-     * is being unloaded). If you redefine this function, **make sure to call the original method**
-     * (`RuntimeObject.prototype.onDestroyFromScene.call(this, runtimeScene);`).
+     * Called when the object is deleted (because it is removed from a scene or
+     * the scene is being unloaded). The object is not actually destroyed and
+     * can still be used by events.
      *
-     * @param instanceContainer The container owning the object.
+     * If you redefine this function, **make sure to call the original method**
+     * (`super.onDeletedFromScene();`).
      */
-    onDeletedFromScene(instanceContainer: gdjs.RuntimeInstanceContainer): void {
-      const theLayer = instanceContainer.getLayer(this.layer);
+    onDeletedFromScene(): void {
+      const theLayer = this._runtimeScene.getLayer(this.layer);
       const rendererObject = this.getRendererObject();
       if (rendererObject) {
         theLayer.getRenderer().removeRendererObject(rendererObject);
@@ -641,6 +692,10 @@ namespace gdjs {
       this.clearEffects();
     }
 
+    /**
+     * Called on deleted objects after all events has been executed for the
+     * current frame and the object can be safely destroyed.
+     */
     onDestroyed(): void {}
 
     /**
@@ -668,7 +723,7 @@ namespace gdjs {
     }
 
     /**
-     * @return The internal object for a 3D rendering (PIXI.DisplayObject...)
+     * @return The internal object for a 3D rendering (THREE.Object3D...)
      */
     get3DRendererObject(): THREE.Object3D | null | undefined {
       return undefined;
@@ -692,8 +747,10 @@ namespace gdjs {
     }
 
     /**
-     * Get the unique identifier of the object.<br>
-     * The identifier is set by the runtimeScene owning the object.<br>
+     * Get the unique identifier of the object.
+     *
+     * The identifier is set by the runtimeScene owning the object.
+     *
      * You can also use the id property (this._object.id) for increased efficiency instead of
      * calling this method.
      *
@@ -701,6 +758,18 @@ namespace gdjs {
      */
     getUniqueId(): integer {
       return this.id;
+    }
+
+    /**
+     * Get the network ID of the object.
+     *
+     * The network ID is used to identify the object in a networked game.
+     * Or, for Save/Load purposes.
+     *
+     * @return The network ID of the object.
+     */
+    getNetworkId(): string | null {
+      return this.networkId;
     }
 
     /**
@@ -798,12 +867,13 @@ namespace gdjs {
       return this.getY();
     }
 
-    rotateTowardPosition(
-      x: float,
-      y: float,
-      speed: float,
-      scene: gdjs.RuntimeScene
-    ): void {
+    /**
+     * Rotate the object towards another object position.
+     * @param x The target x position
+     * @param y The target y position
+     * @param speed The rotation speed. 0 for an immediate rotation to the target position.
+     */
+    rotateTowardPosition(x: float, y: float, speed: float): void {
       this.rotateTowardAngle(
         gdjs.toDegrees(
           Math.atan2(
@@ -811,21 +881,31 @@ namespace gdjs {
             x - (this.getDrawableX() + this.getCenterX())
           )
         ),
-        speed,
-        scene
+        speed
       );
     }
 
     /**
-     * @param angle The targeted direction angle.
-     * @param speed The rotation speed.
-     * @param instanceContainer The container the object belongs to (deprecated - can be omitted).
+     * Rotate the object towards another object position (aiming at the center of the object).
+     * @param target The target object
+     * @param speed The rotation speed. 0 for an immediate rotation to the target object.
      */
-    rotateTowardAngle(
-      angle: float,
-      speed: float,
-      instanceContainer?: gdjs.RuntimeInstanceContainer
-    ): void {
+    rotateTowardObject(target: gdjs.RuntimeObject | null, speed: float): void {
+      if (target === null) {
+        return;
+      }
+      this.rotateTowardPosition(
+        target.getDrawableX() + target.getCenterX(),
+        target.getDrawableY() + target.getCenterY(),
+        speed
+      );
+    }
+
+    /**
+     * @param angle The targeted angle.
+     * @param speed The rotation speed. 0 for an immediate rotation to the target angle.
+     */
+    rotateTowardAngle(angle: float, speed: float): void {
       if (speed === 0) {
         this.setAngle(angle);
         return;
@@ -864,10 +944,7 @@ namespace gdjs {
      * @param speed The speed, in degrees per second.
      * @param instanceContainer The container the object belongs to (deprecated - can be omitted).
      */
-    rotate(
-      speed: float,
-      instanceContainer?: gdjs.RuntimeInstanceContainer
-    ): void {
+    rotate(speed: float): void {
       this.setAngle(this.getAngle() + (speed * this.getElapsedTime()) / 1000);
     }
 
@@ -1386,6 +1463,22 @@ namespace gdjs {
     }
 
     /**
+     * Return the width of the object before any custom size is applied.
+     * @return The width of the object
+     */
+    getOriginalWidth(): float {
+      return this.getWidth();
+    }
+
+    /**
+     * Return the width of the object before any custom size is applied.
+     * @return The width of the object
+     */
+    getOriginalHeight(): float {
+      return this.getHeight();
+    }
+
+    /**
      * Set the width of the object, if applicable.
      * @param width The new width in pixels.
      */
@@ -1477,7 +1570,8 @@ namespace gdjs {
 
     //Forces :
     /**
-     * Get a force from the garbage, or create a new force is garbage is empty.<br>
+     * Get a force from the garbage, or create a new force is garbage is empty.
+     *
      * To be used each time a force is created so as to avoid temporaries objects.
      *
      * @param x The x coordinates of the force
@@ -1562,7 +1656,8 @@ namespace gdjs {
     }
 
     /**
-     * Add a force oriented toward another object.<br>
+     * Add a force oriented toward another object.
+     *
      * (Shortcut for addForceTowardPosition)
      * @param object The target object
      * @param len The force length, in pixels.
@@ -1751,6 +1846,13 @@ namespace gdjs {
       bottom: float
     ): Iterable<gdjs.Polygon> {
       return this.getHitBoxes();
+    }
+
+    /**
+     * @returns `true` when {@link getHitBoxesAround} is faster than {@link getHitBoxes}
+     */
+    isSpatiallyIndexed(): boolean {
+      return false;
     }
 
     /**
@@ -2206,11 +2308,9 @@ namespace gdjs {
         if (otherObject.id === this.id) {
           continue;
         }
-        let otherHitBoxesArray = otherObject.getHitBoxes();
-        let otherHitBoxes: Iterable<gdjs.Polygon> = otherHitBoxesArray;
-        if (otherHitBoxesArray.length > 4) {
-          // The other object has a lot of hit boxes.
-          // Try to reduce the amount of hitboxes to check.
+
+        let otherHitBoxes: Iterable<gdjs.Polygon>;
+        if (otherObject.isSpatiallyIndexed()) {
           if (!aabb) {
             aabb = this.getAABB();
           }
@@ -2220,6 +2320,8 @@ namespace gdjs {
             aabb.max[0],
             aabb.max[1]
           );
+        } else {
+          otherHitBoxes = otherObject.getHitBoxes();
         }
         for (const hitBox of hitBoxes) {
           for (const otherHitBox of otherHitBoxes) {
@@ -2734,11 +2836,12 @@ namespace gdjs {
      *
      * @return true if the cursor, or any touch, is on the object.
      */
-    cursorOnObject(instanceContainer: gdjs.RuntimeInstanceContainer): boolean {
+    cursorOnObject(): boolean {
       const workingPoint: FloatPoint = gdjs.staticArray(
         RuntimeObject.prototype.cursorOnObject
       ) as FloatPoint;
       workingPoint.length = 2;
+      const instanceContainer = this.getInstanceContainer();
       const inputManager = instanceContainer.getGame().getInputManager();
       const layer = instanceContainer.getLayer(this.layer);
       const mousePos = layer.convertCoords(
