@@ -575,10 +575,60 @@ namespace gdjs {
       return this._allInstancesList;
     }
 
+    _updateObjectsPreEvents() {
+      if (this.getScene().getTimeManager().isFirstFrame() || (this.getScene().getName() !== "level" && this.getScene().getName() !== "editor")) 
+        return this._updateObjectsPreEventsOld()
+
+      if (this.getScene().getName() === "level") {
+        //@ts-ignore
+        this.getScene().getObjects("transition")[0].stepBehaviorsPreEvents(this);
+
+        //@ts-ignore
+        this.getScene().getObjects("physic")[0].stepBehaviorsPreEvents(this);
+
+        const tweenObjs = ["waveParticle", "waveParticleWhite", "pulse", "completeTime", "deathCount", "levelComplete", "levelCompleteBg", "pause", "pauseBg", "pauseResume", "pauseLeave", "pauseDownload", "pauseEdit", "winRestart", "winLeave", "pauseRestart", "winEdit", "levelName", "volumeSlider", "volumeIcon", "bg", "wincoin", "pauseIcon", "pauseDeathCount", "pauseTime", "timeAttackClock", "timerIcon", "winIcon", "speedindicator", "jumpCheck", "cfRestart", "cfLeave", "challengeFailed", "challengeFailedBg", "coin"]
+
+        for (let objs of tweenObjs) {
+          //@ts-ignore
+          for (let obj of this.getScene().getObjects(objs)) {
+            obj.stepBehaviorsPreEvents(this);
+          }
+        }
+      } 
+      else {
+        const allInstancesList = this.getAdhocListOfAllInstances();
+        for (let i = 0, len = allInstancesList.length; i < len; ++i) {
+          allInstancesList[i].stepBehaviorsPreEvents(this)
+        }
+      }
+      
+      const updateObjs = this.getScene().getName() === "level" ? ["shipFart", "breakableBlock", "phant", "coin", "volumeSlider", "joystick"] : []
+      const timerObjs = this.getScene().getName() === "level" ? ["blueorb", "greenorb", "arroworb"] : []
+
+      for (let objs of updateObjs) {
+        const obj = this.getScene().getObjects(objs)
+
+        for (let i in obj) {
+          obj[i].update(this)
+        }
+      }
+
+      for (let objs of timerObjs) {
+        const obj = this.getScene().getObjects(objs)
+
+        for (let i in obj) {
+          const elapsedTime = obj[i].getElapsedTime()
+          obj[i].updateTimers(elapsedTime)
+        }
+      }
+
+      this._cacheOrClearRemovedInstances();
+    }
+
     /**
      * Update the objects before launching the events.
      */
-    _updateObjectsPreEvents() {
+    _updateObjectsPreEventsOld() {
       // It is *mandatory* to create and iterate on a external list of all objects, as the behaviors
       // may delete the objects.
       const allInstancesList = this.getAdhocListOfAllInstances();
@@ -603,18 +653,27 @@ namespace gdjs {
       this._cacheOrClearRemovedInstances();
     }
 
-    _updateObjectsForInGameEditor() {
-      const allInstancesList = this.getAdhocListOfAllInstances();
-      for (let i = 0, len = allInstancesList.length; i < len; ++i) {
-        const obj = allInstancesList[i];
-        obj.update(this);
+    _updateObjectsPostEvents() {
+      if (this.getScene().getTimeManager().isFirstFrame() || this.getScene().getName() !== "level") {
+        return this._updateObjectsPostEventsOld()
       }
+      
+      this._cacheOrClearRemovedInstances();
+
+      //@ts-ignore
+      this.getScene().getObjects("transition")[0].stepBehaviorsPostEvents(this);
+
+      //@ts-ignore
+      this.getScene().getObjects("physic")[0].stepBehaviorsPostEvents(this);
+
+      // Some behaviors may have request objects to be deleted.
+      this._cacheOrClearRemovedInstances();
     }
 
     /**
-     * Call each behavior stepPostEvents method.
+     * Update the objects (update positions, time management...)
      */
-    _stepBehaviorsPostEvents() {
+    _updateObjectsPostEventsOld() {
       this._cacheOrClearRemovedInstances();
 
       // It is *mandatory* to create and iterate on a external list of all objects, as the behaviors
@@ -626,6 +685,14 @@ namespace gdjs {
 
       // Some behaviors may have request objects to be deleted.
       this._cacheOrClearRemovedInstances();
+    }
+
+    _updateObjectsForInGameEditor() {
+      const allInstancesList = this.getAdhocListOfAllInstances();
+      for (let i = 0, len = allInstancesList.length; i < len; ++i) {
+        const obj = allInstancesList[i];
+        obj.update(this);
+      }
     }
 
     /**
