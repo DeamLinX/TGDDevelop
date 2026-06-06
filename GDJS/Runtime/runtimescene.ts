@@ -487,15 +487,54 @@ namespace gdjs {
       this._renderer.render();
     }
 
-    /**
-     * Called to update visibility of the renderers of objects
-     * rendered on the scene ("culling"), update effects (of visible objects)
-     * and give a last chance for objects to update before rendering.
-     *
-     * Visibility is set to false if object is hidden, or if
-     * object is too far from the camera of its layer ("culling").
-     */
-    _updateObjectsPreRender() {
+        _updateObjectsPreRender() {
+      if (this.getScene().getTimeManager().isFirstFrame() || this.getScene().getName() !== "level") {
+        return this._updateObjectsPreRenderOld();
+      } 
+      
+      // TODO: For compatibility, pass a scale of `2`,
+      // meaning that size of cameras will be multiplied by 2 and so objects
+      this._updateLayersCameraCoordinates(1);
+
+      const allInstancesList = this.getAdhocListOfAllInstances();
+      for (let i = 0, len = allInstancesList.length; i < len; ++i) {
+        const object = allInstancesList[i];
+        const cameraCoords = this._layersCameraCoordinates[object.getLayer()];
+        const aabb = object.getVisibilityAABB();
+        //if (!aabb) console.log(object.name)
+
+        if (
+          // If no AABB is returned, the object should always be visible
+          !aabb ||
+          // If an AABB is there, it must be at least partially inside
+          // the camera bounds.
+          !(
+            aabb.min[0] > cameraCoords[2] ||
+            aabb.min[1] > cameraCoords[3] ||
+            aabb.max[0] < cameraCoords[0] ||
+            aabb.max[1] < cameraCoords[1]
+          ) 
+        ) {
+          //@ts-ignore
+          object.getRendererObject().visible = true;
+          object.updatePreRender(this)
+        } else {
+          //@ts-ignore
+          object.getRendererObject().visible = false;
+        }
+      }
+
+      const checkVis = ["bgcolortrigger", "groundcolortrigger", "forcetrigger", "pausebutton", "breakblock", "joystick", "fpscounter", "jumpCheck", "cameraCenter", "vignette", "winIcon", "wincoinMany"]
+      for (let objs of checkVis) {
+        //@ts-ignore
+        for (let obj of this.getScene().getObjects(objs)) {
+          //@ts-ignore
+          if (obj.getRendererObject().visible) obj.getRendererObject().visible = !obj.isHidden()
+        }
+      }
+    }
+
+    _updateObjectsPreRenderOld() {
       if (this._timeManager.isFirstFrame()) {
         super._updateObjectsPreRender();
         return;
@@ -558,15 +597,7 @@ namespace gdjs {
         }
       }
     }
-
-    /**
-     * Change the background color, by setting the RGB components.
-     * Internally, the color is stored as an hexadecimal number.
-     *
-     * @param r The color red component (0-255).
-     * @param g The color green component (0-255).
-     * @param b The color blue component (0-255).
-     */
+    
     setBackgroundColor(r: integer, g: integer, b: integer): void {
       this._backgroundColor = parseInt(gdjs.rgbToHex(r, g, b), 16);
     }
