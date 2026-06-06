@@ -487,7 +487,7 @@ namespace gdjs {
       this._renderer.render();
     }
 
-        _updateObjectsPreRender() {
+    _updateObjectsPreRender() {
       if (this.getScene().getTimeManager().isFirstFrame() || this.getScene().getName() !== "level") {
         return this._updateObjectsPreRenderOld();
       } 
@@ -597,7 +597,15 @@ namespace gdjs {
         }
       }
     }
-    
+
+    /**
+     * Change the background color, by setting the RGB components.
+     * Internally, the color is stored as an hexadecimal number.
+     *
+     * @param r The color red component (0-255).
+     * @param g The color green component (0-255).
+     * @param b The color blue component (0-255).
+     */
     setBackgroundColor(r: integer, g: integer, b: integer): void {
       this._backgroundColor = parseInt(gdjs.rgbToHex(r, g, b), 16);
     }
