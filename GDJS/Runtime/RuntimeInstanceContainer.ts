@@ -653,9 +653,9 @@ namespace gdjs {
       this._cacheOrClearRemovedInstances();
     }
 
-    _updateObjectsPostEvents() {
+    _stepBehaviorsPostEvents() {
       if (this.getScene().getTimeManager().isFirstFrame() || this.getScene().getName() !== "level") {
-        return this._updateObjectsPostEventsOld()
+        return this._stepBehaviorsPostEventsOld()
       }
       
       this._cacheOrClearRemovedInstances();
@@ -673,7 +673,7 @@ namespace gdjs {
     /**
      * Update the objects (update positions, time management...)
      */
-    _updateObjectsPostEventsOld() {
+    _stepBehaviorsPostEventsOld() {
       this._cacheOrClearRemovedInstances();
 
       // It is *mandatory* to create and iterate on a external list of all objects, as the behaviors
