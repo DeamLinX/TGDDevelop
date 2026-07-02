@@ -1492,7 +1492,7 @@ namespace gdjs {
       if (!this._data.properties.projectUuid) {
         return;
       }
-      const baseUrl = 'https://api.gdevelop-app.com/analytics';
+      //const baseUrl = 'https://api.gdevelop-app.com/analytics';
       this._playerId = this._makePlayerUuid();
       /**
        * The duration that is already sent to the service
@@ -1509,8 +1509,8 @@ namespace gdjs {
        * either in sendedDuration or notYetSentDuration.
        **/
       let lastSessionResumeTime = Date.now();
-      const platform = this.getPlatformInfo();
-      fetch(baseUrl + '/session', {
+      //const platform = this.getPlatformInfo();
+      /*fetch(baseUrl + '/session', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         // It's important to ensure that the data sent here does not contain
@@ -1546,7 +1546,7 @@ namespace gdjs {
           this._sessionId = returnedSessionId;
         })
         .catch(() => {});
-
+        */
       /* Ignore any error */
       const sendSessionHit = () => {
         if (!this._sessionId) {
@@ -1568,7 +1568,7 @@ namespace gdjs {
         sentDuration += toBeSentDuration;
         notYetSentDuration -= toBeSentDuration;
 
-        navigator.sendBeacon(
+        /*navigator.sendBeacon(
           baseUrl + '/session-hit',
           JSON.stringify({
             gameId: this._data.properties.projectUuid,
@@ -1576,7 +1576,7 @@ namespace gdjs {
             sessionId: this._sessionId,
             duration: Math.floor(sentDuration / 1000),
           })
-        );
+        );*/
       };
       if (typeof navigator !== 'undefined' && typeof document !== 'undefined') {
         document.addEventListener('visibilitychange', () => {

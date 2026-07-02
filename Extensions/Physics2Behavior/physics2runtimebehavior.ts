@@ -188,7 +188,47 @@ namespace gdjs {
       this._registeredBehaviors.delete(physicsBehavior);
     }
 
-    step(deltaTime: float): void {
+    step(runtimeScene, deltaTime: float): void {
+      if (runtimeScene.getScene().getTimeManager().isFirstFrame() || !runtimeScene.getScene().getVariables().get("secondFramePassed").getAsNumber() || runtimeScene.getScene().getName() !== "level") 
+        return this.stepOld(deltaTime)
+
+      const hitboxObjs = runtimeScene.getScene().getVariables().get("js").updateHitboxes;
+      // Reset started and ended contacts array for all physics instances.
+      for (const physicsBehavior of hitboxObjs) {
+        physicsBehavior.contactsStartedThisFrame.length = 0;
+        physicsBehavior.contactsEndedThisFrame.length = 0;
+      }
+      for (const physicsBehavior of hitboxObjs) {
+        physicsBehavior.updateBodyFromObject();
+      }
+
+      this.frameTime += deltaTime;
+      // `frameTime` can take negative values.
+      // It's better to be a bit early rather than skipping a frame and being
+      // a lot more late.
+      let numberOfSteps = Math.max(
+        0,
+        Math.round(this.frameTime / this.timeStep)
+      );
+      this.frameTime -= numberOfSteps * this.timeStep;
+      if (numberOfSteps > 5) {
+        numberOfSteps = 5;
+      }
+      for (let i = 0; i < numberOfSteps; i++) {
+        this.world.Step(this.timeStep * this.timeScale, 8, 10);
+      }
+      this.world.ClearForces();
+      this.stepped = true;
+
+      // It's important that updateBodyFromObject and updateObjectFromBody are
+      // called at the same time because other behavior may move the object in
+      // their doStepPreEvents.
+      for (const physicsBehavior of hitboxObjs) {
+        physicsBehavior.updateObjectFromBody();
+      }
+    }
+
+    stepOld(deltaTime: float): void {
       // Reset started and ended contacts array for all physics instances.
       for (const physicsBehavior of this._registeredBehaviors) {
         physicsBehavior.contactsStartedThisFrame.length = 0;
@@ -958,6 +998,7 @@ namespace gdjs {
         !instanceContainer.getScene().getTimeManager().isFirstFrame()
       ) {
         this._sharedData.step(
+          instanceContainer,
           instanceContainer.getScene().getTimeManager().getElapsedTime() /
             1000.0
         );
