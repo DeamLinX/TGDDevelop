@@ -1342,7 +1342,6 @@ export default class PixiResourcesLoader {
       );
 
     const resource = project.getResourcesManager().getResource(resourceName);
-    // $FlowFixMe[invalid-compare]
     if (resource.getKind() !== 'bitmapFont')
       return Promise.reject(
         new Error(
