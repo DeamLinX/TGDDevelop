@@ -199,6 +199,7 @@ export type AiGeneratedEventChange = {
 
 export type AiGeneratedEventBatch = {
   eventsDescription: string,
+  eventScript: string | null,
   placementRelation: string,
   placementTargetEventId: string | null,
   placementExpectedParentEventId: string | null,
@@ -948,6 +949,8 @@ export type AiConfigurationPreset = {|
   mode: 'chat' | 'agent' | 'orchestrator',
   id: string,
   nameByLocale: MessageByLocale,
+  reasoningLevelByLocale?: MessageByLocale,
+  reasoningLevel?: number,
   disabled: boolean,
   isDefault?: boolean,
 |};
