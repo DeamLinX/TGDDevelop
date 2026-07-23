@@ -59,8 +59,12 @@ describe('SimplifiedProject', () => {
         ],
         "globalVariables": Array [],
         "properties": Object {
+          "firstLayout": "",
           "gameResolutionHeight": 600,
           "gameResolutionWidth": 800,
+          "name": "Project",
+          "orientation": "landscape",
+          "scaleMode": "linear",
         },
         "resources": Array [
           Object {
@@ -349,6 +353,13 @@ describe('SimplifiedProject', () => {
                   "MySpriteObject_With_A_Veeeerrryyyyyyyyy_Looooooooooooong_Name",
                   "MySpriteObjectWithoutBehaviors",
                 ],
+                "variables": undefined,
+              },
+              Object {
+                "behaviors": undefined,
+                "objectGroupName": "EmptyGroup",
+                "objectGroupType": "",
+                "objectNames": Array [],
                 "variables": undefined,
               },
             ],

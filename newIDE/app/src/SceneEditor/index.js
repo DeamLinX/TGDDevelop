@@ -98,11 +98,14 @@ import {
 } from '../EmbeddedGame/EmbeddedGameFrame';
 import Rectangle from '../Utils/Rectangle';
 import { exceptionallyGuardAgainstDeadObject } from '../Utils/IsNullPtr';
+import { type WillDeleteObjectChanges } from '../EditorFunctions/OutsideEditorChanges';
 import {
   type EventsBasedObjectChildrenEditedOptions,
   getImageResourceNamesForEditedObject,
   shouldResetObjectRendererForCustomObjectChildrenEdit,
 } from './CustomObjectResourceReload';
+import { type LastSelectionType } from './EditorsDisplay.flow';
+import { type ObjectGroupEditorTab } from '../ObjectGroupEditor/EditedObjectGroupEditorDialog';
 
 const gd: libGDevelop = global.gd;
 
@@ -283,6 +286,7 @@ type State = {|
 
   editedGroup: gdObjectGroup | null,
   isCreatingNewGroup: boolean,
+  editedGroupInitialTab: ObjectGroupEditorTab | null,
 
   instancesEditorSettings: InstancesEditorSettings,
   history: HistoryState,
@@ -294,10 +298,11 @@ type State = {|
   selectedObjectFolderOrObjectsWithContext: Array<ObjectFolderOrObjectWithContext>,
   chosenLayer: string,
   selectedLayer: gdLayer | null,
+  selectedObjectGroup: gdObjectGroup | null,
 
   tileMapTileSelection: ?TileMapTileSelection,
 
-  lastSelectionType: 'instance' | 'object' | 'layer',
+  lastSelectionType: LastSelectionType,
 |};
 
 type CopyCutPasteOptions = {|
@@ -339,6 +344,7 @@ export default class SceneEditor extends React.Component<Props, State> {
       newObjectInstanceSceneCoordinates: null,
       editedGroup: null,
       isCreatingNewGroup: false,
+      editedGroupInitialTab: null,
       extractAsExternalLayoutDialogOpen: false,
       extractAsCustomObjectDialogOpen: false,
 
@@ -361,6 +367,7 @@ export default class SceneEditor extends React.Component<Props, State> {
       chosenLayer:
         initialInstancesEditorSettings.selectedLayer || BASE_LAYER_NAME,
       selectedLayer: null,
+      selectedObjectGroup: null,
       invisibleLayerOnWhichInstancesHaveJustBeenAdded: null,
 
       lastSelectionType: 'instance',
@@ -755,7 +762,37 @@ export default class SceneEditor extends React.Component<Props, State> {
     this.forceUpdateObjectsList();
   };
 
+  onWillDeleteObject = (changes: WillDeleteObjectChanges) => {
+    // Called before the object is actually deleted, so it's still safe to
+    // read `editedObjectWithContext.object` here.
+    const { editedObjectWithContext } = this.state;
+    if (
+      editedObjectWithContext &&
+      editedObjectWithContext.object.getName() === changes.objectName
+    ) {
+      this.editObject(null);
+    }
+
+    // Clear the objects-list selection now, before actually deleting the
+    // object, to prevent any stale reference in a re-render after deletion
+    // (exact same fix and rationale as the manual delete flow's
+    // `_onDeleteObjects`).
+    this.setState({ selectedObjectFolderOrObjectsWithContext: [] });
+
+    // Drop only the selected instances of this object (mirrors the manual
+    // delete flow, which does the same before removing the object), rather
+    // than waiting for the `onInstancesModifiedOutsideEditor` call that
+    // follows the actual removal and would clear the whole selection.
+    this.instancesSelection.unselectInstancesOfObject(changes.objectName);
+  };
+
   onObjectGroupsModifiedOutsideEditor = () => {
+    // /!\ Drop the group selection to avoid keeping any reference to a group
+    // that could have been deleted or re-created in memory.
+    if (this.state.selectedObjectGroup) {
+      this.setState({ selectedObjectGroup: null });
+    }
+
     // Force refresh of the object groups list.
     this.forceUpdateObjectGroupsList();
   };
@@ -798,7 +835,7 @@ export default class SceneEditor extends React.Component<Props, State> {
           redo={this.redo}
           onOpenSettings={this.openSceneProperties}
           settingsIcon={editSceneIconReactNode}
-          onOpenSceneVariables={this.editLayoutVariables}
+          onOpenSceneVariables={this.openSceneVariables}
         />
       );
     } else {
@@ -828,7 +865,7 @@ export default class SceneEditor extends React.Component<Props, State> {
           redo={this.redo}
           onOpenSettings={this.openSceneProperties}
           settingsIcon={editSceneIconReactNode}
-          onOpenSceneVariables={this.editLayoutVariables}
+          onOpenSceneVariables={this.openSceneVariables}
         />
       );
     }
@@ -956,7 +993,7 @@ export default class SceneEditor extends React.Component<Props, State> {
     this.setState({ variablesEditedInstance: instance });
   };
 
-  editLayoutVariables = (open: boolean = true) => {
+  openSceneVariables = (open: boolean = true) => {
     this.setState({ layoutVariablesDialogOpen: open });
   };
 
@@ -1051,14 +1088,22 @@ export default class SceneEditor extends React.Component<Props, State> {
         objectFolderOrObjectWithContext,
       ],
       selectedLayer: null,
+      selectedObjectGroup: null,
       lastSelectionType: 'object',
     });
     if (this.editorDisplay)
       this.editorDisplay.ensureEditorVisible('properties');
   };
 
-  _editObjectGroup = (group: ?gdObjectGroup) => {
-    this.setState({ editedGroup: group, isCreatingNewGroup: false });
+  _editObjectGroup = (
+    group: gdObjectGroup,
+    initialTab: ?ObjectGroupEditorTab
+  ) => {
+    this.setState({
+      editedGroup: group,
+      editedGroupInitialTab: initialTab,
+      isCreatingNewGroup: false,
+    });
   };
 
   _createObjectGroup = () => {
@@ -1203,6 +1248,7 @@ export default class SceneEditor extends React.Component<Props, State> {
         lastSelectionType: 'object',
         selectedObjectFolderOrObjectsWithContext,
         selectedLayer: null,
+        selectedObjectGroup: null,
       },
       () => {
         // We update the toolbar because we need to update the objects selected
@@ -1340,6 +1386,7 @@ export default class SceneEditor extends React.Component<Props, State> {
           lastSelectionType: 'instance',
           selectedObjectFolderOrObjectsWithContext: [],
           selectedLayer: null,
+          selectedObjectGroup: null,
         },
         this.updateToolbar
       );
@@ -1366,6 +1413,7 @@ export default class SceneEditor extends React.Component<Props, State> {
             },
           ],
           selectedLayer: null,
+          selectedObjectGroup: null,
         },
         this.updateToolbar
       );
@@ -1382,6 +1430,7 @@ export default class SceneEditor extends React.Component<Props, State> {
             },
           ],
           selectedLayer: null,
+          selectedObjectGroup: null,
         },
         this.updateToolbar
       );
@@ -1749,6 +1798,8 @@ export default class SceneEditor extends React.Component<Props, State> {
   };
 
   _sendSetBackgroundColor = () => {
+    this.forceUpdatePropertiesEditor();
+    this.forceUpdateLayersList();
     const { previewDebuggerServer, layout } = this.props;
     if (!layout) {
       return;
@@ -1809,6 +1860,15 @@ export default class SceneEditor extends React.Component<Props, State> {
     this.setState({
       selectedLayer: layer,
       lastSelectionType: 'layer',
+      selectedObjectGroup: null,
+    });
+  };
+
+  _onSelectObjectGroup = (objectGroup: gdObjectGroup | null) => {
+    this.setState({
+      selectedObjectGroup: objectGroup,
+      lastSelectionType: 'objectGroup',
+      selectedLayer: null,
     });
   };
 
@@ -1822,10 +1882,11 @@ export default class SceneEditor extends React.Component<Props, State> {
     objectsWithContext.forEach(objectWithContext => {
       const { object, global } = objectWithContext;
 
-      // Unselect instances of the deleted object because these instances
-      // will be deleted by gd.WholeProjectRefactorer (and after that, they will
+      // Close the object's edit dialog if open, clear the objects-list
+      // selection and unselect instances of the deleted object - all before
+      // gd.WholeProjectRefactorer removes them below (after which they would
       // be invalid references, as pointing to deleted objects).
-      this.instancesSelection.unselectInstancesOfObject(object.getName());
+      this.onWillDeleteObject({ scene: layout, objectName: object.getName() });
 
       if (layout) {
         if (global) {
@@ -1847,12 +1908,6 @@ export default class SceneEditor extends React.Component<Props, State> {
           object.getName()
         );
       }
-    });
-
-    // /!\ Clear the selected objects before actually deleting them to prevent
-    // any stale reference in a re-render after deletion.
-    this.setState({
-      selectedObjectFolderOrObjectsWithContext: [],
     });
 
     this.props.onObjectListsModified({ isNewObjectTypeUsed: false });
@@ -2067,6 +2122,11 @@ export default class SceneEditor extends React.Component<Props, State> {
     groupWithContext: GroupWithContext,
     done: boolean => void
   ) => {
+    // Clear the group selection now, before actually deleting the group,
+    // to prevent any stale reference in a re-render after deletion (the
+    // group properties panel would call into a destroyed gd.ObjectGroup).
+    this.setState({ selectedObjectGroup: null });
+
     // done() actually does the deletion of the object group,
     // so ensure groupWithContext is not used after this call.
     done(true);
@@ -3022,6 +3082,8 @@ export default class SceneEditor extends React.Component<Props, State> {
                     onSelectLayer={this._onSelectLayer}
                     editLayer={this.editLayer}
                     editLayerEffects={this.editLayerEffects}
+                    selectedObjectGroup={this.state.selectedObjectGroup}
+                    onSelectObjectGroup={this._onSelectObjectGroup}
                     editInstanceVariables={this.editInstanceVariables}
                     editObjectByName={this.editObjectByName}
                     editObjectInPropertiesPanel={
@@ -3133,6 +3195,7 @@ export default class SceneEditor extends React.Component<Props, State> {
                     onEventsBasedObjectChildrenEdited={
                       this.props.onEventsBasedObjectChildrenEdited
                     }
+                    openSceneVariables={this.openSceneVariables}
                   />
                   <React.Fragment>
                     {editedObjectWithContext && (
@@ -3283,6 +3346,7 @@ export default class SceneEditor extends React.Component<Props, State> {
                         projectScopedContainersAccessor
                       }
                       group={this.state.editedGroup}
+                      initialTab={this.state.editedGroupInitialTab}
                       objectsContainer={this.props.objectsContainer}
                       globalObjectsContainer={this.props.globalObjectsContainer}
                       initialInstances={this.props.initialInstances}
@@ -3300,7 +3364,6 @@ export default class SceneEditor extends React.Component<Props, State> {
                           global: false,
                         });
                       }}
-                      initialTab={'objects'}
                       onComputeAllVariableNames={() => {
                         const { editedGroup } = this.state;
                         if (!editedGroup) return [];
@@ -3416,7 +3479,7 @@ export default class SceneEditor extends React.Component<Props, State> {
                       layout={layout}
                       onClose={() => this.openSceneProperties(false)}
                       onApply={() => this.openSceneProperties(false)}
-                      onEditVariables={() => this.editLayoutVariables(true)}
+                      onEditVariables={() => this.openSceneVariables(true)}
                       onOpenMoreSettings={this.props.onOpenMoreSettings}
                       resourceManagementProps={
                         this.props.resourceManagementProps
@@ -3473,8 +3536,8 @@ export default class SceneEditor extends React.Component<Props, State> {
                       open
                       project={project}
                       layout={layout}
-                      onApply={() => this.editLayoutVariables(false)}
-                      onCancel={() => this.editLayoutVariables(false)}
+                      onApply={() => this.openSceneVariables(false)}
+                      onCancel={() => this.openSceneVariables(false)}
                       hotReloadPreviewButtonProps={
                         this.props.hotReloadPreviewButtonProps
                       }
