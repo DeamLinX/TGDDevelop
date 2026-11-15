@@ -82,6 +82,12 @@ export default class BrowserS3PreviewLauncher extends React.Component<
       error: null,
     });
 
+    if (previewOptions.isForGameplayTest) {
+      throw new Error(
+        'Gameplay tests are not supported with this legacy preview launcher.'
+      );
+    }
+
     const debuggerIds = previewOptions.isForInGameEdition
       ? this.getPreviewDebuggerServer().getExistingEmbeddedGameFrameDebuggerIds()
       : this.getPreviewDebuggerServer().getExistingPreviewDebuggerIds();
@@ -171,9 +177,8 @@ export default class BrowserS3PreviewLauncher extends React.Component<
       previewExportOptions.setCrashReportUploadLevel(
         this.props.crashReportUploadLevel
       );
-      previewExportOptions.setPreviewContext(this.props.previewContext);
+      previewExportOptions.setPreviewContext('preview');
       previewExportOptions.setProjectTemplateSlug(project.getTemplateSlug());
-      previewExportOptions.setSourceGameId(this.props.sourceGameId);
 
       if (previewOptions.inAppTutorialMessageInPreview) {
         previewExportOptions.setInAppTutorialMessageInPreview(
@@ -206,6 +211,16 @@ export default class BrowserS3PreviewLauncher extends React.Component<
             screenshot.publicUrl
           );
         });
+      }
+      if (
+        previewOptions.captureOptions &&
+        previewOptions.captureOptions.previewVideo
+      ) {
+        previewExportOptions.setPreviewVideoCapture(
+          previewOptions.captureOptions.previewVideo.signedUrl,
+          previewOptions.captureOptions.previewVideo.publicUrl,
+          previewOptions.captureOptions.previewVideo.isRecordedByUser
+        );
       }
       if (previewOptions.editorCameraState3D) {
         previewExportOptions.setEditorCameraState3D(

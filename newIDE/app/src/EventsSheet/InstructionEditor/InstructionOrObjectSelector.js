@@ -55,6 +55,7 @@ import {
 } from './TreeViewItems';
 import ObjectsRenderingService from '../../ObjectsRendering/ObjectsRenderingService';
 import useForceUpdate from '../../Utils/UseForceUpdate';
+import { useOnResource3DPreviewRendered } from '../../ResourcesList/ResourcePreview/Resource3DPreviewContext';
 import type { MessageDescriptor } from '../../Utils/i18n/MessageDescriptor.flow';
 import {
   createFreeInstructionTreeViewItem,
@@ -367,6 +368,7 @@ const InstructionOrObjectSelector: React.ComponentType<{
     ]);
 
     const forceUpdate = useForceUpdate();
+    useOnResource3DPreviewRendered(forceUpdate);
 
     React.useEffect(
       () => {
@@ -921,6 +923,7 @@ const InstructionOrObjectSelector: React.ComponentType<{
                 }}
                 searchText={searchText}
                 multiSelect={false}
+                enableStickyAncestors
               />
             )}
           </AutoSizer>
@@ -983,6 +986,7 @@ const InstructionOrObjectSelector: React.ComponentType<{
                   }
                 }}
                 multiSelect={false}
+                enableStickyAncestors
               />
             )}
           </AutoSizer>

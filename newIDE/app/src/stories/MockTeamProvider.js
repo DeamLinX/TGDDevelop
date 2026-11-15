@@ -47,6 +47,7 @@ const initialTeam: Team = {
   id: 'teamId',
   createdAt: 160,
   seats: 9,
+  minimumDelayBeforeReactivationInDays: 0,
 };
 
 const initialAdmins: Array<User> = [
@@ -313,7 +314,7 @@ export const MockTeamProvider = ({
     team && members && admins
       ? team.seats -
         members.filter(member => !member.deactivatedAt).length -
-        admins.length
+        (admins.length - 1)
       : null;
 
   const setAdmin = async (email: string, activate: boolean) => {
