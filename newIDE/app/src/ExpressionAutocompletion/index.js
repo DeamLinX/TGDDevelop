@@ -14,11 +14,20 @@ import {
   filterEnumeratedInstructionOrExpressionMetadataByScope,
 } from '../InstructionOrExpression/EnumeratedInstructionOrExpressionMetadata';
 import { getVisibleParameterTypes } from '../EventsSheet/ParameterFields/GenericExpressionField/FormatExpressionCall';
-import { getParameterChoiceAutocompletions } from '../EventsSheet/ParameterFields/ParameterMetadataTools';
+import {
+  getParameterChoiceAutocompletions,
+  getEasingChoices,
+} from '../EventsSheet/ParameterFields/ParameterMetadataTools';
 import getObjectByName from '../Utils/GetObjectByName';
 import { getAllPointNames } from '../ObjectEditor/Editors/SpriteEditor/Utils/SpriteObjectHelper';
 import { enumerateParametersUsableInExpressions } from '../EventsSheet/ParameterFields/EnumerateFunctionParameters';
 import { filterStringListWithPrefix } from '../Utils/ListFiltering';
+import { customEasingExampleIdentifier } from '../Utils/Easings';
+import {
+  getEasingChoicesWithNamedEasings,
+  getNamedEasingNames,
+  getNamedEasingsContainerFromAccessor,
+} from '../Utils/NamedEasings';
 import { ProjectScopedContainersAccessor } from '../InstructionOrExpression/EventsScope';
 
 const gd: libGDevelop = global.gd;
@@ -306,6 +315,15 @@ const getAutocompletionsForText = function(
     autocompletionTexts = getParameterChoiceAutocompletions(
       completionDescription.getParameterMetadata()
     ).map(autocompletion => autocompletion.completion);
+  } else if (type === 'easing') {
+    autocompletionTexts = getEasingChoicesWithNamedEasings(
+      getEasingChoices(completionDescription.getParameterMetadata()),
+      getNamedEasingNames(
+        getNamedEasingsContainerFromAccessor(projectScopedContainersAccessor)
+      )
+    )
+      .concat(customEasingExampleIdentifier)
+      .map(choice => `"${choice}"`);
   } else if (type === 'objectPointName') {
     const objectName: string = completionDescription.getObjectName();
     if (!objectName) {
@@ -721,7 +739,7 @@ export const insertAutocompletionInExpression = (
         wordStartPosition,
       });
 
-  if (addParenthesis && hasVisibleParameters) {
+  if ((addParenthesis && hasVisibleParameters) || insertedWord.endsWith('[]')) {
     newAutocompletedExpression.caretLocation =
       newAutocompletedExpression.caretLocation - 1;
   }

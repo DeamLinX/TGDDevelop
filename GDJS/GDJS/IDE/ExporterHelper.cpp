@@ -193,11 +193,28 @@ bool ExporterHelper::ExportProjectForPixiPreview(
                   /*includeInAppTutorialMessage*/
                   !options.inAppTutorialMessageInPreview.empty(),
                   immutableProject.GetLoadingScreen().GetGDevelopLogoStyle(),
-                  includesFiles);
+                  includesFiles,
+                  resourcesFiles);
 
     // Export files for free function, object and behaviors
     for (const auto &includeFile : usedExtensionsResult.GetUsedIncludeFiles()) {
       InsertUnique(includesFiles, includeFile);
+    }
+    // Gameplay tests can only be run when a debugger client is included
+    // (see `AddLibsInclude`): then, include the files adding helpers to the
+    // gameplay test harness, for the extensions used by the project.
+    if (!options.websocketDebuggerServerAddress.empty() ||
+        options.useWindowMessageDebuggerClient) {
+      const auto &platform = exportedProject.GetCurrentPlatform();
+      for (const auto &extensionName :
+           usedExtensionsResult.GetUsedExtensions()) {
+        if (!platform.IsExtensionLoaded(extensionName)) continue;
+        for (const auto &includeFile :
+             platform.GetExtension(extensionName)
+                 ->GetGameplayTestIncludeFiles()) {
+          InsertUnique(includesFiles, includeFile);
+        }
+      }
     }
     for (const auto &requiredFile : usedExtensionsResult.GetUsedRequiredFiles()) {
       InsertUnique(resourcesFiles, requiredFile);
@@ -375,6 +392,8 @@ void ExporterHelper::SerializeRuntimeGameOptions(
     gd::SerializerElement &runtimeGameOptions) {
   // Create the setup options passed to the gdjs.RuntimeGame
   runtimeGameOptions.AddChild("isPreview").SetBoolValue(true);
+  runtimeGameOptions.AddChild("runtimeFilesBaseUrl")
+      .SetStringValue(GetExportedRuntimeFilesBaseUrl(fs, gdjsRoot));
 
   auto &initialRuntimeGameStatus =
       runtimeGameOptions.AddChild("initialRuntimeGameStatus");
@@ -472,10 +491,6 @@ void ExporterHelper::SerializeRuntimeGameOptions(
     runtimeGameOptions.AddChild("projectTemplateSlug")
         .SetStringValue(options.projectTemplateSlug);
   }
-  if (!options.sourceGameId.empty()) {
-    runtimeGameOptions.AddChild("sourceGameId")
-        .SetStringValue(options.sourceGameId);
-  }
 
   if (!options.captureOptions.IsEmpty()) {
     auto &captureOptionsElement = runtimeGameOptions.AddChild("captureOptions");
@@ -490,6 +505,16 @@ void ExporterHelper::SerializeRuntimeGameOptions(
             .SetStringAttribute("signedUrl", screenshot.GetSignedUrl())
             .SetStringAttribute("publicUrl", screenshot.GetPublicUrl());
       }
+    }
+    if (!options.captureOptions.GetPreviewVideoSignedUrl().empty()) {
+      captureOptionsElement.AddChild("previewVideo")
+          .SetStringAttribute("signedUrl",
+                              options.captureOptions.GetPreviewVideoSignedUrl())
+          .SetStringAttribute("publicUrl",
+                              options.captureOptions.GetPreviewVideoPublicUrl())
+          .SetBoolAttribute(
+              "isRecordedByUser",
+              options.captureOptions.IsPreviewVideoRecordedByUser());
     }
   }
 
@@ -864,6 +889,25 @@ bool ExporterHelper::ExportCordovaFiles(const gd::Project &project,
         .FindAndReplace("*", "");
   };
 
+  const gd::String &orientation = project.GetOrientation();
+  const bool isOrientationLocked =
+      orientation == "landscape" || orientation == "portrait";
+
+  // Declare the orientation at build time so that the native app only supports
+  // it, as iOS ignores an orientation lock requested at runtime.
+  const gd::String orientationPreference =
+      isOrientationLocked
+          ? "<preference name=\"Orientation\" value=\"" + orientation + "\" />"
+          : "";
+
+  // Opt out of iPad multitasking, which requires all orientations to be
+  // supported (ITMS-90474) and ignores the declared orientation.
+  const gd::String iosOrientationLock =
+      isOrientationLocked
+          ? "<edit-config file=\"*-Info.plist\" mode=\"merge\" "
+            "target=\"UIRequiresFullScreen\">\n<true/>\n</edit-config>"
+          : "";
+
   gd::String str =
       fs.ReadFile(gdjsRoot + "/Runtime/Cordova/config.xml")
           .FindAndReplace("GDJS_PROJECTNAME",
@@ -874,7 +918,10 @@ bool ExporterHelper::ExportCordovaFiles(const gd::Project &project,
               gd::Serializer::ToEscapedXMLString(project.GetPackageName()))
           .FindAndReplace("GDJS_PROJECTVERSION", project.GetVersion())
           .FindAndReplace("<!-- GDJS_ICONS_ANDROID -->", makeIconsAndroid())
-          .FindAndReplace("<!-- GDJS_ICONS_IOS -->", makeIconsIos());
+          .FindAndReplace("<!-- GDJS_ICONS_IOS -->", makeIconsIos())
+          .FindAndReplace("<!-- GDJS_IOS_ORIENTATION_LOCK -->",
+                          iosOrientationLock)
+          .FindAndReplace("<!-- GDJS_ORIENTATION -->", orientationPreference);
 
   gd::String plugins = "";
   auto dependenciesAndExtensions =
@@ -1154,7 +1201,8 @@ void ExporterHelper::AddLibsInclude(bool pixiRenderers,
                                     bool includeCaptureManager,
                                     bool includeInAppTutorialMessage,
                                     gd::String gdevelopLogoStyle,
-                                    std::vector<gd::String> &includesFiles) {
+                                    std::vector<gd::String> &includesFiles,
+                                    std::vector<gd::String> &resourcesFiles) {
   // First, do not forget common includes (they must be included before events
   // generated code files).
   InsertUnique(includesFiles, "libs/jshashtable.js");
@@ -1180,6 +1228,7 @@ void ExporterHelper::AddLibsInclude(bool pixiRenderers,
   InsertUnique(includesFiles, "RuntimeCustomObjectLayer.js");
   InsertUnique(includesFiles, "timer.js");
   InsertUnique(includesFiles, "runtimewatermark.js");
+  InsertUnique(includesFiles, "named-easings-manager.js");
   InsertUnique(includesFiles, "runtimegame.js");
   InsertUnique(includesFiles, "variable.js");
   InsertUnique(includesFiles, "variablescontainer.js");
@@ -1225,6 +1274,10 @@ void ExporterHelper::AddLibsInclude(bool pixiRenderers,
     InsertUnique(includesFiles, "debugger-client/hot-reloader.js");
     InsertUnique(includesFiles, "debugger-client/abstract-debugger-client.js");
     InsertUnique(includesFiles, "debugger-client/InGameDebugger.js");
+    // Gameplay tests can only be run when a debugger client is included
+    // (i.e: during previews), as the test scripts are sent over the
+    // debugger connection.
+    InsertUnique(includesFiles, "gameplay-tests/gameplay-test-runner.js");
   }
   if (includeWebsocketDebuggerClient) {
     InsertUnique(includesFiles, "debugger-client/websocket-debugger-client.js");
@@ -1240,8 +1293,12 @@ void ExporterHelper::AddLibsInclude(bool pixiRenderers,
   if (pixiInThreeRenderers || isInGameEdition) {
     InsertUnique(includesFiles, "pixi-renderers/three.js");
     InsertUnique(includesFiles, "pixi-renderers/ThreeAddons.js");
-    InsertUnique(includesFiles, "pixi-renderers/draco/gltf/draco_decoder.wasm");
-    InsertUnique(includesFiles,
+    // The Draco decoder files are not included with a script tag: they are
+    // fetched by the DRACOLoader (of ThreeAddons.js) when a 3D model
+    // compressed with Draco must be read.
+    InsertUnique(resourcesFiles,
+                 "pixi-renderers/draco/gltf/draco_decoder.wasm");
+    InsertUnique(resourcesFiles,
                  "pixi-renderers/draco/gltf/draco_wasm_wrapper.js");
     // Extensions in JS may use it.
     InsertUnique(includesFiles, "Extensions/3D/Scene3DTools.js");
@@ -1282,6 +1339,7 @@ void ExporterHelper::AddLibsInclude(bool pixiRenderers,
     InsertUnique(includesFiles, "InGameEditor/InGameEditor.js");
   }
   if (includeCaptureManager) {
+    InsertUnique(includesFiles, "PreviewVideoRecordingToolbar.js");
     InsertUnique(includesFiles, "capturemanager.js");
   }
 }
@@ -1366,6 +1424,19 @@ bool ExporterHelper::ExportScenesEventsCode(
   }
 
   return true;
+}
+
+gd::String ExporterHelper::GetExportedRuntimeFilesBaseUrl(
+    gd::AbstractFileSystem &fs, const gd::String &gdjsRoot) {
+  // Same convention as in `GetExportedIncludeFilename`: the game engine files
+  // keep, relative to the "<GDJS Root>/Runtime" folder, the same relative
+  // path when exported. Some file systems use a URL for `gdjsRoot`, and keep
+  // absolute URLs pointing to the server the game engine files are served
+  // from.
+  gd::String runtimeFilesBaseUrl = gdjsRoot + "/Runtime/";
+  fs.MakeRelative(runtimeFilesBaseUrl, gdjsRoot + "/Runtime/");
+
+  return runtimeFilesBaseUrl.empty() ? "./" : runtimeFilesBaseUrl;
 }
 
 gd::String ExporterHelper::GetExportedIncludeFilename(

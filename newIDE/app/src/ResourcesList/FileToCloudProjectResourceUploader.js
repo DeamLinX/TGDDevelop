@@ -32,7 +32,15 @@ type FileToCloudProjectResourceUploaderProps = {|
 |};
 
 const resourceKindToInputAcceptedMimes = {
-  audio: ['audio/aac', 'audio/x-wav', 'audio/mpeg', 'audio/mp3', 'audio/ogg'],
+  audio: [
+    'audio/aac',
+    'audio/x-m4a',
+    'audio/mp4',
+    'audio/x-wav',
+    'audio/mpeg',
+    'audio/mp3',
+    'audio/ogg',
+  ],
   image: ['image/jpeg', 'image/png', 'image/webp'],
   font: ['font/ttf', 'font/otf'],
   video: ['video/mp4', 'video/webm'],
@@ -56,7 +64,11 @@ const resourceKindToInputAcceptedMimes = {
     // Same as above: .atlas files have no recognized mime type on iOS Safari, so the
     // 'file' pseudo-mime is used and validation happens post-picking.
   ],
-  spine: ['application/json'],
+  spine: [
+    'file',
+    // .skel has no recognized mime type; .json would be filtered out on iOS if mixed
+    // with application/json. Validation happens post-picking (json and skel).
+  ],
   javascript: ['text/javascript'],
 };
 

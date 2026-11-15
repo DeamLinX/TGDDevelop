@@ -157,6 +157,11 @@ namespace gdjs {
       return this._renderer.getRendererObject();
     }
 
+    onDestroyed(): void {
+      super.onDestroyed();
+      this._renderer.destroy();
+    }
+
     getVisibilityAABB() {
       return null;
     }
@@ -319,28 +324,16 @@ namespace gdjs {
         return;
       }
       const transformation = this._collisionTileMap.getTransformation();
-
-      const absScaleX = Math.abs(this._scaleX);
-      const absScaleY = Math.abs(this._scaleY);
-
       transformation.setToIdentity();
-
-      // Translation
       transformation.translate(this.x, this.y);
-
-      // Rotation
-      const angleInRadians = (this.angle * Math.PI) / 180;
       transformation.rotateAround(
-        angleInRadians,
+        (this.angle * Math.PI) / 180,
         this.getCenterX(),
         this.getCenterY()
       );
-
-      // Scale
-      transformation.scale(absScaleX, absScaleY);
+      transformation.scale(Math.abs(this._scaleX), Math.abs(this._scaleY));
 
       this._collisionTileMap.setTransformation(transformation);
-
       this._transformationIsUpToDate = true;
     }
 
